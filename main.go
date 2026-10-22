@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -68,16 +70,53 @@ func ParseLogLine(line string) (LogEntry, error) {
 
 }
 
-func main() {
-	line := "2023-12-25T14:30:15.123Z [INFO] user-service: User authenticated, request_id=req_abc123, user_id=12345"
-
-	fmt.Printf("Parsing: %s\n\n", line)
-
-	entry, err := ParseLogLine(line)
+func ReadLogFile(filename string) ([]LogEntry, error) {
+	file, err := os.Open(filename)
 	if err != nil {
-		fmt.Println("ошибка", err)
-		return
+		return nil, fmt.Errorf("не удалось открыть файл %q: %w", filename, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	var entries []LogEntry
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		entry, err := ParseLogLine(line)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "не удалось обработать строку: %v\n", err)
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	if err = scanner.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка чтения файла: %w", err)
 	}
 
-	fmt.Println(entry)
+	return entries, nil
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "использование: go run . <файл с логами>")
+		os.Exit(1)
+	}
+	filename := os.Args[1]
+
+	entries, err := ReadLogFile(filename)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ошибка:", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Прочитано записей: %d\n\n", len(entries))
+	for _, entry := range entries {
+		fmt.Println(entry)
+	}
 }
