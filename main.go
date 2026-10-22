@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -102,21 +104,67 @@ func ReadLogFile(filename string) ([]LogEntry, error) {
 	return entries, nil
 }
 
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "использование: go run . <файл с логами>")
-		os.Exit(1)
-	}
-	filename := os.Args[1]
+func ScanLogDirectory(dirPath string) ([]string, error) {
+	var logFiles []string
 
-	entries, err := ReadLogFile(filename)
+	err := filepath.WalkDir(dirPath, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !entry.IsDir() && strings.HasSuffix(path, ".log") {
+			logFiles = append(logFiles, path)
+		}
+
+		return nil
+	})
+
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ошибка:", err)
+		return nil, fmt.Errorf("не удалось обойти каталог %q: %w", dirPath, err)
+	}
+
+	return logFiles, nil
+}
+
+func ProcessMultipleFiles(filePaths []string) ([]LogEntry, error) {
+	var allEntries []LogEntry
+
+	for _, path := range filePaths {
+		entries, err := ReadLogFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
+			continue
+		}
+
+		fmt.Printf("%s: %d entries\n", filepath.Base(path), len(entries))
+		allEntries = append(allEntries, entries...)
+	}
+
+	return allEntries, nil
+}
+
+func main() {
+	dir := "./logs"
+
+	fmt.Printf("Scanning directory: %s\n", dir)
+
+	files, err := ScanLogDirectory(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("Прочитано записей: %d\n\n", len(entries))
-	for _, entry := range entries {
-		fmt.Println(entry)
+	fmt.Printf("Found %d log files:\n", len(files))
+	for _, path := range files {
+		fmt.Printf("  - %s\n", filepath.Base(path))
 	}
+
+	fmt.Print("\nProcessing files...\n")
+	result, err := ProcessMultipleFiles(files)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("\nTotal entries processed:", len(result))
 }
