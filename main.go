@@ -193,6 +193,16 @@ func FindFirstFailure(requestEntries []LogEntry) (LogEntry, bool) {
 	return LogEntry{}, false
 }
 
+func SortTimelineByTimestamp(entries []LogEntry) []LogEntry {
+	sorted := slices.Clone(entries)
+
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Timestamp.Before(sorted[j].Timestamp)
+	})
+
+	return sorted
+}
+
 func main() {
 	dir := "./logs"
 
@@ -257,6 +267,15 @@ func main() {
 			fmt.Printf("  Service: %s\n", entry.Service)
 			fmt.Printf("  Error: %s\n", entry.Message)
 			fmt.Printf("  Time: %s\n", entry.Timestamp.Format(time.RFC3339Nano))
+		}
+	}
+
+	if len(failed) > 0 {
+		id := failed[0]
+		fmt.Printf("\nFailed request timeline: %s\n\n", id)
+		for _, e := range SortTimelineByTimestamp(grouped[id]) {
+			fmt.Printf("%s %-7s %s: %s\n",
+				e.Timestamp.Format("15:04:05.000Z07:00"), "["+e.Level+"]", e.Service, e.Message)
 		}
 	}
 }
