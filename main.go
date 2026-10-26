@@ -29,6 +29,8 @@ var lineRe = regexp.MustCompile(`^(\S+) \[(\w+)] ([\w-]+): (.+)$`)
 var requestIDRe = regexp.MustCompile(`\brequest_id=(\w+)`)
 var userIDRe = regexp.MustCompile(`\buser_id=(\w+)`)
 
+const noRequestIDKey = "<no-request-id>"
+
 func ParseLogLine(line string) (LogEntry, error) {
 	line = strings.TrimSpace(line)
 
@@ -143,6 +145,18 @@ func ProcessMultipleFiles(filePaths []string) ([]LogEntry, error) {
 	return allEntries, nil
 }
 
+func CorrelateRequests(entries []LogEntry) map[string][]LogEntry {
+	grouped := make(map[string][]LogEntry)
+	for _, entry := range entries {
+		key := entry.RequestID
+		if key == "" {
+			key = noRequestIDKey
+		}
+		grouped[key] = append(grouped[key], entry)
+	}
+	return grouped
+}
+
 func main() {
 	dir := "./logs"
 
@@ -167,4 +181,26 @@ func main() {
 	}
 
 	fmt.Println("\nTotal entries processed:", len(result))
+
+	grouped := CorrelateRequests(result)
+	orphaned := grouped[noRequestIDKey]
+	delete(grouped, noRequestIDKey)
+
+	fmt.Println("Unique requests found:", len(grouped))
+	fmt.Println("Orphaned entries (no request_id):", len(orphaned))
+
+	var sampleID string
+	for id, reqEntries := range grouped {
+		if sampleID == "" || len(reqEntries) > len(grouped[sampleID]) ||
+			(len(reqEntries) == len(grouped[sampleID]) && id < sampleID) {
+			sampleID = id
+		}
+	}
+
+	if sampleID != "" {
+		fmt.Printf("\nSample correlated request (%s):\n", sampleID)
+		for _, e := range grouped[sampleID] {
+			fmt.Printf("  - %s: %s\n", e.Service, e.Message)
+		}
+	}
 }
