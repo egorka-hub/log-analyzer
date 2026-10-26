@@ -194,7 +194,8 @@ func FindFirstFailure(requestEntries []LogEntry) (LogEntry, bool) {
 }
 
 func SortTimelineByTimestamp(entries []LogEntry) []LogEntry {
-	sorted := slices.Clone(entries)
+	sorted := make([]LogEntry, len(entries))
+	copy(sorted, entries)
 
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Timestamp.Before(sorted[j].Timestamp)
