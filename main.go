@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 )
@@ -157,6 +159,40 @@ func CorrelateRequests(entries []LogEntry) map[string][]LogEntry {
 	return grouped
 }
 
+func DetectFailedRequests(correlatedRequests map[string][]LogEntry) []string {
+	var failed []string
+
+	for requestID, entries := range correlatedRequests {
+		for _, entry := range entries {
+			if entry.Level == "ERROR" || entry.Level == "WARN" {
+				failed = append(failed, requestID)
+				break
+			}
+		}
+
+	}
+
+	sort.Strings(failed)
+
+	return failed
+}
+
+func FindFirstFailure(requestEntries []LogEntry) (LogEntry, bool) {
+	entries := slices.Clone(requestEntries)
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Timestamp.Before(entries[j].Timestamp)
+	})
+
+	for _, entry := range entries {
+		if entry.Level == "ERROR" || entry.Level == "WARN" {
+			return entry, true
+		}
+	}
+
+	return LogEntry{}, false
+}
+
 func main() {
 	dir := "./logs"
 
@@ -201,6 +237,26 @@ func main() {
 		fmt.Printf("\nSample correlated request (%s):\n", sampleID)
 		for _, e := range grouped[sampleID] {
 			fmt.Printf("  - %s: %s\n", e.Service, e.Message)
+		}
+	}
+
+	failed := DetectFailedRequests(grouped)
+
+	fmt.Println("\nFailed requests analysis:")
+	fmt.Printf("Total failed requests: %d out of %d\n", len(failed), len(grouped))
+
+	fmt.Println("\nFailed request IDs:")
+	for _, id := range failed {
+		fmt.Printf("  - %s\n", id)
+	}
+
+	if len(failed) > 0 {
+		id := failed[0]
+		if entry, ok := FindFirstFailure(grouped[id]); ok {
+			fmt.Printf("\nFirst failure for %s:\n", id)
+			fmt.Printf("  Service: %s\n", entry.Service)
+			fmt.Printf("  Error: %s\n", entry.Message)
+			fmt.Printf("  Time: %s\n", entry.Timestamp.Format(time.RFC3339Nano))
 		}
 	}
 }
