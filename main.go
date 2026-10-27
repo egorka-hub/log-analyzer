@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -22,6 +23,20 @@ type LogEntry struct {
 	UserID    string
 }
 
+type AnalysisResult struct {
+	TotalEntriesProcessed int                   `json:"total_entries_processed"`
+	FailedRequestsFound   int                   `json:"failed_requests_found"`
+	ProcessingTimeSeconds float64               `json:"processing_time_seconds"`
+	FailedRequests        []FailedRequestReport `json:"failed_requests"`
+}
+
+type FailedRequestReport struct {
+	RequestID      string   `json:"request_id"`
+	FailingService string   `json:"failing_service"`
+	ErrorMessage   string   `json:"error_message"`
+	Timeline       []string `json:"timeline"`
+}
+
 func (e LogEntry) String() string {
 	return fmt.Sprintf("LogEntry{\n  Timestamp: %v\n  Level: %s\n  Service: %s\n  Message: %s\n  RequestID: %s\n  UserID: %s\n}",
 		e.Timestamp, e.Level, e.Service, e.Message, e.RequestID, e.UserID)
@@ -38,7 +53,7 @@ func ParseLogLine(line string) (LogEntry, error) {
 
 	matches := lineRe.FindStringSubmatch(line)
 	if matches == nil {
-		return LogEntry{}, fmt.Errorf("неверный формат строки: %q", line)
+		return LogEntry{}, fmt.Errorf("invalid line format: %q", line)
 	}
 
 	date := matches[1]
@@ -48,13 +63,13 @@ func ParseLogLine(line string) (LogEntry, error) {
 
 	t, err := time.Parse(time.RFC3339, date)
 	if err != nil {
-		return LogEntry{}, fmt.Errorf("неверный формат времени %q: %w", date, err)
+		return LogEntry{}, fmt.Errorf("invalid timestamp %q: %w", date, err)
 	}
 
 	switch level {
 	case "INFO", "WARN", "ERROR":
 	default:
-		return LogEntry{}, fmt.Errorf("неизвестный уровень %q", level)
+		return LogEntry{}, fmt.Errorf("unknown log level %q", level)
 	}
 
 	var requestID, userID string
@@ -79,7 +94,7 @@ func ParseLogLine(line string) (LogEntry, error) {
 func ReadLogFile(filename string) ([]LogEntry, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, fmt.Errorf("не удалось открыть файл %q: %w", filename, err)
+		return nil, fmt.Errorf("failed to open file %q: %w", filename, err)
 	}
 	defer file.Close()
 
@@ -96,13 +111,13 @@ func ReadLogFile(filename string) ([]LogEntry, error) {
 
 		entry, err := ParseLogLine(line)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "не удалось обработать строку: %v\n", err)
+			fmt.Fprintf(os.Stderr, "failed to parse line: %v\n", err)
 			continue
 		}
 		entries = append(entries, entry)
 	}
 	if err = scanner.Err(); err != nil {
-		return nil, fmt.Errorf("ошибка чтения файла: %w", err)
+		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
 	return entries, nil
@@ -124,7 +139,7 @@ func ScanLogDirectory(dirPath string) ([]string, error) {
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("не удалось обойти каталог %q: %w", dirPath, err)
+		return nil, fmt.Errorf("failed to walk directory %q: %w", dirPath, err)
 	}
 
 	return logFiles, nil
@@ -136,7 +151,7 @@ func ProcessMultipleFiles(filePaths []string) ([]LogEntry, error) {
 	for _, path := range filePaths {
 		entries, err := ReadLogFile(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			continue
 		}
 
@@ -204,14 +219,30 @@ func SortTimelineByTimestamp(entries []LogEntry) []LogEntry {
 	return sorted
 }
 
+func WriteJSONReport(result AnalysisResult, filename string) error {
+	if result.FailedRequests == nil {
+		result.FailedRequests = []FailedRequestReport{}
+	}
+
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal report: %w", err)
+	}
+	if err := os.WriteFile(filename, data, 0644); err != nil {
+		return fmt.Errorf("failed to write report to %q: %w", filename, err)
+	}
+	return nil
+}
+
 func main() {
+	start := time.Now()
 	dir := "./logs"
 
 	fmt.Printf("Scanning directory: %s\n", dir)
 
 	files, err := ScanLogDirectory(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -223,7 +254,7 @@ func main() {
 	fmt.Print("\nProcessing files...\n")
 	result, err := ProcessMultipleFiles(files)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -279,4 +310,32 @@ func main() {
 				e.Timestamp.Format("15:04:05.000Z07:00"), "["+e.Level+"]", e.Service, e.Message)
 		}
 	}
+
+	reports := make([]FailedRequestReport, 0, len(failed))
+	for _, id := range failed {
+		report := FailedRequestReport{RequestID: id}
+		if entry, ok := FindFirstFailure(grouped[id]); ok {
+			report.FailingService = entry.Service
+			report.ErrorMessage = entry.Message
+		}
+		for _, e := range SortTimelineByTimestamp(grouped[id]) {
+			report.Timeline = append(report.Timeline, fmt.Sprintf("%s [%s] %s: %s",
+				e.Timestamp.Format("15:04:05.000Z07:00"), e.Level, e.Service, e.Message))
+		}
+		reports = append(reports, report)
+	}
+
+	report := AnalysisResult{
+		TotalEntriesProcessed: len(result),
+		FailedRequestsFound:   len(failed),
+		ProcessingTimeSeconds: time.Since(start).Seconds(),
+		FailedRequests:        reports,
+	}
+
+	reportFile := "report.json"
+	if err := WriteJSONReport(report, reportFile); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("\nReport saved to %s\n", reportFile)
 }

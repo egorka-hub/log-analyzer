@@ -24,6 +24,7 @@ go.work.sum
 !testdata/**/*.log
 /output/
 *.json.out
+/report.json
 
 .idea/
 .vscode/
