@@ -1,0 +1,41 @@
+{
+  "total_entries_processed": 10,
+  "failed_requests_found": 4,
+  "processing_time_seconds": 0.001109667,
+  "failed_requests": [
+    {
+      "request_id": "req002",
+      "failing_service": "user-service",
+      "error_message": "Too many login attempts user_id=1002 request_id=req002",
+      "timeline": [
+        "10:31:12.000Z [WARN] user-service: Too many login attempts user_id=1002 request_id=req002"
+      ]
+    },
+    {
+      "request_id": "req003",
+      "failing_service": "user-service",
+      "error_message": "Database timeout request_id=req003",
+      "timeline": [
+        "10:32:45.000Z [ERROR] user-service: Database timeout request_id=req003"
+      ]
+    },
+    {
+      "request_id": "req101",
+      "failing_service": "payment-service",
+      "error_message": "Card declined user_id=1001 request_id=req101",
+      "timeline": [
+        "10:30:05.000Z [INFO] payment-service: Payment started user_id=1001 request_id=req101",
+        "10:30:09.000Z [ERROR] payment-service: Card declined user_id=1001 request_id=req101"
+      ]
+    },
+    {
+      "request_id": "req201",
+      "failing_service": "order-service",
+      "error_message": "Order payment pending user_id=1001 request_id=req201",
+      "timeline": [
+        "10:29:50.000Z [INFO] order-service: Order created user_id=1001 request_id=req201",
+        "10:30:10.000Z [WARN] order-service: Order payment pending user_id=1001 request_id=req201"
+      ]
+    }
+  ]
+}

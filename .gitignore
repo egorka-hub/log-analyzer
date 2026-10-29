@@ -25,6 +25,7 @@ go.work.sum
 /output/
 *.json.out
 /report.json
+/results.json
 
 .idea/
 .vscode/
