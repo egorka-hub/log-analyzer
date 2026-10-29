@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -35,6 +36,11 @@ type FailedRequestReport struct {
 	FailingService string   `json:"failing_service"`
 	ErrorMessage   string   `json:"error_message"`
 	Timeline       []string `json:"timeline"`
+}
+
+type Config struct {
+	InputDir   string
+	OutputFile string
 }
 
 func (e LogEntry) String() string {
@@ -234,13 +240,38 @@ func WriteJSONReport(result AnalysisResult, filename string) error {
 	return nil
 }
 
+func ParseCommandLineArgs() (Config, error) {
+	inputDir := flag.String("input-dir", ".", "Directory containing .log files")
+	outputFile := flag.String("output-file", "results.json", "JSON output file path")
+
+	flag.Parse()
+
+	info, err := os.Stat(*inputDir)
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid input dir: %w", err)
+	}
+	if !info.IsDir() {
+		return Config{}, fmt.Errorf("%q is not a directory", *inputDir)
+	}
+
+	return Config{
+		InputDir:   *inputDir,
+		OutputFile: *outputFile,
+	}, nil
+}
+
 func main() {
 	start := time.Now()
-	dir := "./logs"
 
-	fmt.Printf("Scanning directory: %s\n", dir)
+	cfg, err := ParseCommandLineArgs()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 
-	files, err := ScanLogDirectory(dir)
+	fmt.Printf("Scanning directory: %s\n", cfg.InputDir)
+
+	files, err := ScanLogDirectory(cfg.InputDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -332,10 +363,9 @@ func main() {
 		FailedRequests:        reports,
 	}
 
-	reportFile := "report.json"
-	if err := WriteJSONReport(report, reportFile); err != nil {
+	if err := WriteJSONReport(report, cfg.OutputFile); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("\nReport saved to %s\n", reportFile)
+	fmt.Printf("\nReport saved to %s\n", cfg.OutputFile)
 }
