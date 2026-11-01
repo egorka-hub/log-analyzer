@@ -1,4 +1,5 @@
 /log-analyzer
+/log-processor
 *.exe
 *.exe~
 *.dll
@@ -22,6 +23,7 @@ go.work.sum
 
 *.log
 !testdata/**/*.log
+/logs/
 /output/
 *.json.out
 /report.json
