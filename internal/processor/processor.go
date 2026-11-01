@@ -135,9 +135,11 @@ func ProcessFilesConcurrently(ctx context.Context, filePaths []string, numWorker
 	var wg sync.WaitGroup
 
 	for range numWorkers {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			fileWorker(ctx, jobs, results)
-		})
+		}()
 	}
 
 	for _, path := range filePaths {
