@@ -2,6 +2,7 @@ package processor
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -121,7 +122,11 @@ func SortTimelineByTimestamp(entries []parser.LogEntry) []parser.LogEntry {
 	return sorted
 }
 
-func ProcessFilesConcurrently(filePaths []string, numWorkers int) ([]parser.LogEntry, error) {
+func ProcessFilesConcurrently(ctx context.Context, filePaths []string, numWorkers int) ([]parser.LogEntry, error) {
+	if numWorkers <= 0 {
+		return nil, fmt.Errorf("numWorkers must be positive, got %d", numWorkers)
+	}
+
 	jobs := make(chan string, len(filePaths))
 	results := make(chan []parser.LogEntry, len(filePaths))
 
@@ -131,7 +136,7 @@ func ProcessFilesConcurrently(filePaths []string, numWorkers int) ([]parser.LogE
 
 	for range numWorkers {
 		wg.Go(func() {
-			fileWorker(jobs, results)
+			fileWorker(ctx, jobs, results)
 		})
 	}
 
@@ -152,17 +157,26 @@ func ProcessFilesConcurrently(filePaths []string, numWorkers int) ([]parser.LogE
 
 	fmt.Println("All workers completed.")
 
-	return allEntries, nil
+	return allEntries, ctx.Err()
 }
 
-func fileWorker(jobs <-chan string, results chan<- []parser.LogEntry) {
-	for path := range jobs {
-		entries, err := ReadLogFile(path)
-		if err != nil {
-			fmt.Printf("Worker failed: %s (%v)\n", filepath.Base(path), err)
-			continue
+func fileWorker(ctx context.Context, jobs <-chan string, results chan<- []parser.LogEntry) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case path, ok := <-jobs:
+			if !ok {
+				return
+			}
+
+			entries, err := ReadLogFile(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Worker failed: %s (%v)\n", filepath.Base(path), err)
+				continue
+			}
+			fmt.Printf("Worker processed: %s (%d entries)\n", filepath.Base(path), len(entries))
+			results <- entries
 		}
-		fmt.Printf("Worker processed: %s (%d entries)\n", filepath.Base(path), len(entries))
-		results <- entries
 	}
 }

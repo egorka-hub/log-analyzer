@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"time"
 
@@ -13,6 +16,18 @@ import (
 )
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+
+	go func() {
+		<-sigChan
+		fmt.Println("Interrupt signal received, shutting down...")
+		cancel()
+	}()
+
 	start := time.Now()
 
 	cfg, err := cli.ParseCommandLineArgs()
@@ -35,11 +50,12 @@ func main() {
 	}
 
 	fmt.Print("\nProcessing files...\n")
-	result, err := processor.ProcessFilesConcurrently(files, 5)
-	if err != nil {
+	result, err := processor.ProcessFilesConcurrently(ctx, files, 5)
+	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+	interrupted := errors.Is(err, context.Canceled)
 
 	fmt.Println("\nTotal entries processed:", len(result))
 
@@ -119,5 +135,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("\nReport saved to %s\n", cfg.OutputFile)
+	if interrupted {
+		fmt.Printf("\nPartial results saved to %s\n", cfg.OutputFile)
+	} else {
+		fmt.Printf("\nReport saved to %s\n", cfg.OutputFile)
+	}
 }
