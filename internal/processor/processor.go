@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"log-analyzer/internal/parser"
 )
@@ -118,4 +119,50 @@ func SortTimelineByTimestamp(entries []parser.LogEntry) []parser.LogEntry {
 	})
 
 	return sorted
+}
+
+func ProcessFilesConcurrently(filePaths []string, numWorkers int) ([]parser.LogEntry, error) {
+	jobs := make(chan string, len(filePaths))
+	results := make(chan []parser.LogEntry, len(filePaths))
+
+	fmt.Printf("Starting concurrent processing with %d workers...\n", numWorkers)
+
+	var wg sync.WaitGroup
+
+	for range numWorkers {
+		wg.Go(func() {
+			fileWorker(jobs, results)
+		})
+	}
+
+	for _, path := range filePaths {
+		jobs <- path
+	}
+	close(jobs)
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var allEntries []parser.LogEntry
+	for entries := range results {
+		allEntries = append(allEntries, entries...)
+	}
+
+	fmt.Println("All workers completed.")
+
+	return allEntries, nil
+}
+
+func fileWorker(jobs <-chan string, results chan<- []parser.LogEntry) {
+	for path := range jobs {
+		entries, err := ReadLogFile(path)
+		if err != nil {
+			fmt.Printf("Worker failed: %s (%v)\n", filepath.Base(path), err)
+			continue
+		}
+		fmt.Printf("Worker processed: %s (%d entries)\n", filepath.Base(path), len(entries))
+		results <- entries
+	}
 }

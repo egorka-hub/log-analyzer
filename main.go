@@ -35,7 +35,7 @@ func main() {
 	}
 
 	fmt.Print("\nProcessing files...\n")
-	result, err := processor.ProcessMultipleFiles(files)
+	result, err := processor.ProcessFilesConcurrently(files, 5)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
